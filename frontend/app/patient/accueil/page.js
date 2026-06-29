@@ -1,18 +1,44 @@
 'use client';
 import { useState, useEffect } from 'react';
+import MapboxMap from './MapboxMap';
 
 // Données enrichies avec la propriété requiresPrescription et des images uniques
 const MOCK_MEDICAMENTS = [
   { id: 1, name: 'Paracétamol Efferalgan 500mg', price: 1500, pharmacy: 'Pharmacie du Centre', distance: '0.8 km', available: true, stock: 120, address: 'Rue de la Joie, Douala', hours: 'Ouvert', requiresPrescription: false, image: 'https://images.unsplash.com/photo-1586015555751-63bb77f4322a?w=150&auto=format&fit=crop&q=60' },
   { id: 2, name: 'Amoxicilline 1g', price: 3200, pharmacy: 'Pharmacie de la Poste', distance: '2.4 km', available: true, stock: 45, address: 'Avenue de Gaulle, Douala', hours: 'Ouvert', requiresPrescription: true, image: 'https://images.unsplash.com/photo-1631549916768-4119b295f826?w=150&auto=format&fit=crop&q=60' },
   { id: 3, name: 'Ibuprofène 400mg', price: 1800, pharmacy: 'Pharmacie de la Gare', distance: '4.1 km', available: false, stock: 0, address: 'Quartier Akwa, Douala', hours: 'Fermé', requiresPrescription: false, image: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=150&auto=format&fit=crop&q=60' },
-  { id: 4, name: 'Augmentin Enfant', price: 4500, pharmacy: 'Pharmacie du Centre', distance: '0.8 km', available: true, stock: 15, address: 'Rue de la Joie, Douala', hours: 'Ouvert', requiresPrescription: true, image: 'https://images.unsplash.com/photo-1576602976047-174e57a47881?q=80&w=1169&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D' },
+  { id: 4, name: 'Augmentin enfant', price: 4500, pharmacy: 'Pharmacie du Centre', distance: '0.8 km', available: true, stock: 15, address: 'Rue de la Joie, Douala', hours: 'Ouvert', requiresPrescription: true, image: 'https://images.unsplash.com/photo-1576602976047-174e57a47881?q=80&w=1169&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D' },
 ];
+
+const DEFAULT_PHARMACY_IMAGE = 'https://images.unsplash.com/photo-1586015555751-63bb77f4322a?w=150&auto=format&fit=crop&q=60';
+
+function normalizePharmacyResult(item, productName) {
+  return {
+    id: item._id || item.id || `${item.name}-${item.address}`,
+    name: productName || item.name || 'Produit inconnu',
+    pharmacy: item.name || item.pharmacy || 'Pharmacie partenaire',
+    address: item.address || item.location?.address || 'Adresse non renseignée',
+    distance: item.distance ? `${(item.distance / 1000).toFixed(1)} km` : item.distance || 'N/A',
+    available: item.stock ? item.stock.length > 0 : true,
+    stock: item.stock?.length ?? item.stock ?? 'N/A',
+    hours: item.displayStatus || (item.isOpen ? 'Ouvert' : 'Fermé') || 'N/A',
+    isOpen: item.isOpen ?? (item.displayStatus === 'Ouvert'),
+    price: item.price ?? 0,
+    requiresPrescription: item.requiresPrescription || false,
+    image: item.image || DEFAULT_PHARMACY_IMAGE,
+    location: item.location || null,
+    raw: item
+  };
+}
 
 export default function PatientAccueil() {
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState(MOCK_MEDICAMENTS);
   const [userName, setUserName] = useState('Utilisateur');
+  const [userLocation, setUserLocation] = useState(null);
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiError, setApiError] = useState('');
+  const [locationError, setLocationError] = useState('');
   
   // États de navigation et d'interaction
   const [activeTab, setActiveTab] = useState('Tableau de bord');
@@ -30,16 +56,75 @@ export default function PatientAccueil() {
   useEffect(() => {
     const storedName = localStorage.getItem('userName');
     if (storedName) setUserName(storedName);
+
+    if (!navigator.geolocation) {
+      setLocationError('La géolocalisation n’est pas prise en charge par votre navigateur.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        });
+      },
+      (error) => {
+        setLocationError(`Impossible de récupérer votre position : ${error.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
   }, []);
 
-  const handleSearch = (e) => {
+  const fetchSearchResults = async (query) => {
+    if (!query || !userLocation) {
+      return;
+    }
+
+    try {
+      setApiLoading(true);
+      setApiError('');
+
+      const response = await fetch(`/api/recherche?produit=${encodeURIComponent(query)}&lat=${userLocation.lat}&lng=${userLocation.lng}`);
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Erreur lors de la recherche des pharmacies.');
+      }
+
+      const normalized = data.data.map((item) => normalizePharmacyResult(item, query));
+      setResults(normalized);
+    } catch (error) {
+      setApiError(error.message);
+      setResults(MOCK_MEDICAMENTS.filter((med) => med.name.toLowerCase().includes(query.toLowerCase())));
+    } finally {
+      setApiLoading(false);
+    }
+  };
+
+  const handleSearch = async (e) => {
     const query = e.target.value;
     setSearchQuery(query);
-    const filtered = MOCK_MEDICAMENTS.filter(med => 
-      med.name.toLowerCase().includes(query.toLowerCase())
-    );
-    setResults(filtered);
+
+    if (!query.trim()) {
+      setResults(MOCK_MEDICAMENTS);
+      return;
+    }
+
+    if (!userLocation) {
+      setApiError('Activez la géolocalisation pour obtenir la distance et le statut des pharmacies.');
+      setResults(MOCK_MEDICAMENTS.filter((med) => med.name.toLowerCase().includes(query.toLowerCase())));
+      return;
+    }
+
+    await fetchSearchResults(query);
   };
+
+  useEffect(() => {
+    if (userLocation && searchQuery.trim()) {
+      fetchSearchResults(searchQuery);
+    }
+  }, [userLocation]);
 
   const triggerItinerary = (med) => {
     setSelectedMed(med);
@@ -170,6 +255,7 @@ export default function PatientAccueil() {
                       <div>
                         <p className="text-xs font-bold text-slate-700">🏢 {med.pharmacy}</p>
                         <p className="text-[10px] text-slate-400 mt-0.5">📍 À {med.distance} de vous</p>
+                        <p className={`text-[10px] font-semibold mt-1 ${med.isOpen ? 'text-emerald-600' : 'text-rose-600'}`}>{med.hours}</p>
                       </div>
                     </div>
                   </div>
@@ -188,45 +274,73 @@ export default function PatientAccueil() {
 
         {/* SECTION 2 : VUE CARTE */}
         {activeTab === 'Carte' && (
-          <div className="max-w-5xl mx-auto h-[70vh] relative bg-slate-200 rounded-3xl overflow-hidden shadow-inner border border-slate-100">
-            <div className="absolute inset-0 bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px] bg-slate-100 flex items-center justify-center">
-              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest bg-white/90 px-4 py-2 rounded-full border border-slate-200/80 shadow-sm">Réseau des Pharmacies Partenaires • Douala</p>
+          <div className="max-w-5xl mx-auto space-y-4">
+            {locationError && (
+              <div className="bg-rose-50 border border-rose-100 text-rose-700 rounded-3xl p-4 text-xs font-medium">
+                {locationError}
+              </div>
+            )}
+
+            {apiError && (
+              <div className="bg-amber-50 border border-amber-100 text-amber-700 rounded-3xl p-4 text-xs font-medium">
+                {apiError}
+              </div>
+            )}
+
+            <div className="h-[70vh] relative bg-slate-200 rounded-3xl overflow-hidden shadow-inner border border-slate-100">
+              <MapboxMap
+                pharmacies={results}
+                userLocation={userLocation}
+                selectedPharmacy={selectedMed}
+                onSelectPharmacy={(pharmacy) => setSelectedMed(pharmacy)}
+              />
             </div>
 
-            <div className="absolute inset-0 pointer-events-none">
-              <button onClick={() => setSelectedMed(MOCK_MEDICAMENTS[0])} className="absolute top-1/3 left-1/3 pointer-events-auto group transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-                <div className={`px-2 py-1 rounded-md text-[10px] font-bold shadow-sm border transition-all ${selectedMed?.pharmacy === 'Pharmacie du Centre' ? 'bg-emerald-600 text-white border-emerald-700 scale-105' : 'bg-white text-slate-700 border-slate-200'}`}>Pharmacie du Centre</div>
-                <div className={`w-3 h-3 rounded-full border-2 border-white mt-1 shadow-md transition-all ${selectedMed?.pharmacy === 'Pharmacie du Centre' ? 'bg-emerald-600 scale-125' : 'bg-emerald-500'}`}></div>
-              </button>
+            {selectedMed ? (
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <img src={selectedMed.image} alt={selectedMed.pharmacy} className="w-16 h-16 rounded-3xl object-cover border border-slate-100 shadow-sm" />
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">{selectedMed.pharmacy}</h3>
+                      <p className="text-[11px] text-slate-500 mt-1">{selectedMed.address}</p>
+                      <p className="text-[11px] text-slate-400 mt-2">{selectedMed.distance} • <span className="font-bold text-emerald-600">{selectedMed.hours}</span></p>
+                    </div>
+                  </div>
 
-              <button onClick={() => setSelectedMed(MOCK_MEDICAMENTS[1])} className="absolute top-1/2 left-2/3 pointer-events-auto group transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-                <div className={`px-2 py-1 rounded-md text-[10px] font-bold shadow-sm border transition-all ${selectedMed?.pharmacy === 'Pharmacie de la Poste' ? 'bg-emerald-600 text-white border-emerald-700 scale-105' : 'bg-white text-slate-700 border-slate-200'}`}>Pharmacie de la Poste</div>
-                <div className={`w-3 h-3 rounded-full border-2 border-white mt-1 shadow-md transition-all ${selectedMed?.pharmacy === 'Pharmacie de la Poste' ? 'bg-emerald-600 scale-125' : 'bg-emerald-500'}`}></div>
-              </button>
-
-              <button onClick={() => setSelectedMed(MOCK_MEDICAMENTS[2])} className="absolute top-2/3 left-1/2 pointer-events-auto group transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-                <div className={`px-2 py-1 rounded-md text-[10px] font-bold shadow-sm border transition-all ${selectedMed?.pharmacy === 'Pharmacie de la Gare' ? 'bg-emerald-600 text-white border-emerald-700 scale-105' : 'bg-white text-slate-700 border-slate-200'}`}>Pharmacie de la Gare</div>
-                <div className={`w-3 h-3 rounded-full border-2 border-white mt-1 shadow-md transition-all ${selectedMed?.pharmacy === 'Pharmacie de la Gare' ? 'bg-emerald-600 scale-125' : 'bg-emerald-500'}`}></div>
-              </button>
-            </div>
-
-            {selectedMed && (
-              <div className="absolute bottom-6 left-6 bg-white p-5 rounded-2xl shadow-xl border border-slate-100 max-w-sm w-80 animate-fadeIn z-10">
-                <div className="flex gap-4 items-start">
-                  <img src={selectedMed.image} alt={selectedMed.pharmacy} className="w-14 h-14 rounded-xl object-cover border border-slate-100 shadow-sm" />
-                  <div className="flex-1">
-                    <h3 className="font-bold text-sm text-slate-800">{selectedMed.pharmacy}</h3>
-                    <p className="text-[11px] text-slate-400 font-medium mt-0.5">{selectedMed.distance} • <span className="text-emerald-600 font-bold">{selectedMed.hours}</span></p>
-                    <p className="text-[11px] text-emerald-600 font-bold mt-1.5 bg-emerald-50/60 inline-block px-2 py-0.5 rounded">En stock • {selectedMed.stock || '0'} boîte(s)</p>
-                    {selectedMed.requiresPrescription && (
-                      <p className="text-[10px] text-amber-700 font-bold mt-1 bg-amber-50 px-1.5 py-0.5 rounded inline-block uppercase">📋 Ordonnance Obligatoire</p>
-                    )}
-                    <p className="font-extrabold text-sm text-slate-800 mt-2">{selectedMed.price} FCFA</p>
+                  <div className="grid grid-cols-2 gap-3 text-[11px] text-slate-500">
+                    <div className="bg-slate-50 rounded-2xl p-3">
+                      <p className="font-bold text-slate-900">Distance</p>
+                      <p>{selectedMed.distance}</p>
+                    </div>
+                    <div className={`rounded-2xl p-3 ${selectedMed.isOpen ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                      <p className="font-bold text-slate-900">Statut</p>
+                      <p>{selectedMed.hours}</p>
+                    </div>
                   </div>
                 </div>
-                <button onClick={() => triggerReservationSetup(selectedMed)} className="w-full mt-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition-colors shadow-md">
-                  Réserver
-                </button>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="bg-slate-50 rounded-3xl p-4">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Prix estimé</p>
+                    <p className="text-slate-900 font-black mt-2">{selectedMed.price} CFA</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-3xl p-4">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Stocks disponibles</p>
+                    <p className="text-slate-900 font-black mt-2">{selectedMed.stock || '0'} boîte(s)</p>
+                  </div>
+                </div>
+
+                <div className="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <button onClick={() => triggerReservationSetup(selectedMed)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl py-3 px-5 text-xs transition-colors">
+                    Réserver à cette pharmacie
+                  </button>
+                  <p className="text-[10px] text-slate-400">Sélectionnez un marqueur sur la carte pour changer de pharmacie.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 text-slate-500 text-sm">
+                Sélectionnez une pharmacie dans la liste ou sur la carte pour afficher l'itinéraire et les détails.
               </div>
             )}
           </div>

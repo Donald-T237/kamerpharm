@@ -8,6 +8,7 @@ const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/admin'); 
 const medicationRoutes = require('./routes/medicationRoutes'); // <-- AJOUTÉ ICI
 const patientRoutes = require('./routes/patientRoutes');
+const pharmacyRoutes = require('./routes/pharmacyRoutes'); // <-- NOUVELLE ROUTE
 const reservationRoutes = require('./routes/reservationRoutes');
 
 // Chargement des variables d'environnement
@@ -29,6 +30,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes); 
 app.use('/api/medications', medicationRoutes); // <-- AJOUTÉ ICI
 app.use('/api/patients', patientRoutes);
+app.use('/api/pharmacy', pharmacyRoutes); // <-- NOUVELLE ROUTE
 app.use('/api/reservations', reservationRoutes);
 
 // Lancement du serveur KAMERPHARM
