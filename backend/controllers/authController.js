@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Pharmacy = require('../models/Pharmacy');
 const jwt = require('jsonwebtoken');
 
 // Fonction d'aide pour générer le JWT
@@ -25,8 +26,33 @@ exports.register = async (req, res) => {
     }
 
     const user = await User.create({
-      name, email, password, phone, role, status, address, location, schedule
-    });
+  name,
+  email,
+  password,
+  phone,
+  role,
+  status,
+  address,
+  location,
+  schedule
+});
+
+// Si c'est une pharmacie, on crée également une entrée dans la collection pharmacies
+if (role === 'pharmacie') {
+  await Pharmacy.create({
+    name,
+    managerName: name,
+    phone,
+    email,
+    password,
+    location: {
+      address,
+      type: 'Point',
+      coordinates: coordinates || [0, 0]
+    },
+    status: 'en_attente'
+  });
+}
 
     res.status(201).json({
       _id: user._id,

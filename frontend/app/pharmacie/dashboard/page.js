@@ -138,7 +138,7 @@ export default function PharmacieDashboard() {
         </div>
         <div className="mt-auto p-4 border-t border-slate-50">
           <button onClick={() => { localStorage.clear(); window.location.href = '/login'; }} className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-rose-500 font-bold hover:bg-rose-50 rounded-xl transition-all">
-            🚪 Déconnexion pro
+            Déconnexion pro
           </button>
         </div>
       </aside>

@@ -192,7 +192,7 @@ export default function PatientAccueil() {
         </div>
         <div className="mt-auto p-4 border-t border-slate-50">
           <button onClick={() => { localStorage.clear(); window.location.href = '/login'; }} className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-rose-500 font-bold hover:bg-rose-50 rounded-xl transition-all">
-            🚪 Déconnexion
+            Déconnexion
           </button>
         </div>
       </aside>
@@ -253,8 +253,8 @@ export default function PatientAccueil() {
                     <div className="flex items-center gap-3 mt-3 bg-slate-50/50 p-2 rounded-xl border border-slate-100">
                       <img src={med.image} alt={med.pharmacy} className="w-12 h-12 rounded-lg object-cover shadow-sm bg-slate-200" />
                       <div>
-                        <p className="text-xs font-bold text-slate-700">🏢 {med.pharmacy}</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">📍 À {med.distance} de vous</p>
+                        <p className="text-xs font-bold text-slate-700"> {med.pharmacy}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">À {med.distance} de vous</p>
                         <p className={`text-[10px] font-semibold mt-1 ${med.isOpen ? 'text-emerald-600' : 'text-rose-600'}`}>{med.hours}</p>
                       </div>
                     </div>
