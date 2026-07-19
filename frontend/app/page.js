@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 export default function Home() {
@@ -10,6 +10,9 @@ export default function Home() {
   const [error, setError] = useState('');
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationError, setLocationError] = useState('');
 
   const handleSearch = async (event) => {
     event.preventDefault();
@@ -27,7 +30,13 @@ export default function Home() {
     }
 
     try {
-      const response = await fetch(`/api/recherche?produit=${encodeURIComponent(trimmedQuery)}`);
+      const params = new URLSearchParams({ produit: trimmedQuery });
+      if (userLocation) {
+        params.set('lat', String(userLocation.lat));
+        params.set('lng', String(userLocation.lng));
+      }
+
+      const response = await fetch(`/api/recherche?${params.toString()}`);
       const data = await response.json();
 
       if (!response.ok) {
@@ -47,9 +56,35 @@ export default function Home() {
     }
   };
 
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setLocationError("La géolocalisation n'est pas prise en charge par votre navigateur.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      (geoError) => {
+        setLocationError("Autorisez la géolocalisation pour des résultats proches de chez vous.");
+        setUserLocation({ lat: 4.0511, lng: 9.7679 });
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+    );
+  }, []);
+
   const loginRedirect = () => {
     window.location.href = '/login';
   };
+
+  const openAuthModal = () => setShowAuthModal(true);
+  const closeAuthModal = () => setShowAuthModal(false);
+  const goToLogin = () => { window.location.href = '/login'; };
+  const goToRegister = () => { window.location.href = '/register'; };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
@@ -101,6 +136,53 @@ export default function Home() {
                 Rechercher
               </button>
             </form>
+            {/* Aperçu de la recherche (affiché directement sous le formulaire) */}
+            {hasSearched && (
+              <div className="mt-4">
+                {searching && <p className="text-sm text-slate-500">Recherche en cours...</p>}
+                {!searching && !results.length && !error && (
+                  <p className="text-sm text-slate-500">Aucun résultat pour l'instant.</p>
+                )}
+
+                {!searching && results.length > 0 && (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {results.slice(0, 4).map((item, index) => {
+                      const name = item.name || item.description || item.produit || 'Médicament trouvé';
+                      const pharmacy = item.pharmacy || item.pharmacie || item.name || 'Pharmacie partenaire';
+                      const price = item.price ? `${item.price} CFA` : item.prix ? `${item.prix} CFA` : 'Prix indisponible';
+
+                      return (
+                        <div key={`preview-${index}`} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-semibold text-slate-900 text-sm">{name}</p>
+                              <p className="text-xs text-slate-500">{pharmacy}</p>
+                            </div>
+                            <span className="text-xs font-semibold text-emerald-700">{price}</span>
+                          </div>
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={openAuthModal}
+                              className="rounded-full border border-emerald-600 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                            >
+                              Voir l’itinéraire
+                            </button>
+                            <button
+                              type="button"
+                              onClick={openAuthModal}
+                              className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-emerald-500"
+                            >
+                              Réserver
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
             <p className="text-sm text-slate-500">
               Explorez les pharmacies qui ont votre médicament. Pour voir l’itinéraire ou réserver, il vous sera demandé de vous connecter ou de vous inscrire.
             </p>
@@ -124,6 +206,21 @@ export default function Home() {
                   Inscription facile pour accéder aux itinéraires et réservations.
                 </li>
               </ul>
+            </div>
+            <div className="rounded-3xl bg-white p-6 shadow-sm shadow-slate-200/20">
+              <p className="text-xs uppercase tracking-[0.32em] text-emerald-700">Vous êtes une pharmacie ?</p>
+              <h3 className="mt-3 text-lg font-semibold text-slate-900">Rejoignez KamerPharm.</h3>
+              <ul className="mt-4 space-y-2 text-sm text-slate-600">
+                <li className="flex gap-3"><span className="mt-1 h-3 w-3 rounded-full bg-emerald-600" />Plus de visibilité</li>
+                <li className="flex gap-3"><span className="mt-1 h-3 w-3 rounded-full bg-emerald-600" />Gestion du stock</li>
+                <li className="flex gap-3"><span className="mt-1 h-3 w-3 rounded-full bg-emerald-600" />Réduction des ruptures</li>
+                <li className="flex gap-3"><span className="mt-1 h-3 w-3 rounded-full bg-emerald-600" />Réservations en ligne</li>
+              </ul>
+              <div className="mt-5">
+                <Link href="/register" className="inline-flex items-center justify-center rounded-3xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-600/20 transition hover:bg-emerald-500">
+                  Devenir partenaire
+                </Link>
+              </div>
             </div>
             <div className="rounded-3xl border border-emerald-100 bg-white p-6 shadow-sm shadow-slate-200/20">
               <p className="text-xs uppercase tracking-[0.32em] text-emerald-700">Nos engagements</p>
@@ -204,14 +301,14 @@ export default function Home() {
                           <div className="mt-6 flex flex-wrap gap-2">
                             <button
                               type="button"
-                              onClick={loginRedirect}
+                              onClick={openAuthModal}
                               className="rounded-full border border-emerald-600 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
                             >
                               Voir l’itinéraire
                             </button>
                             <button
                               type="button"
-                              onClick={loginRedirect}
+                              onClick={openAuthModal}
                               className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500"
                             >
                               Réserver
@@ -231,6 +328,22 @@ export default function Home() {
           </div>
         </section>
       </main>
+
+      {/* Modal de connexion requis */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={closeAuthModal} />
+          <div className="relative mx-4 max-w-md rounded-2xl bg-white p-6 shadow-lg">
+            <button onClick={closeAuthModal} className="absolute right-3 top-3 text-slate-400">✕</button>
+            <h3 className="text-lg font-semibold text-slate-900">Connexion requise</h3>
+            <p className="mt-3 text-sm text-slate-600">Pour réserver un médicament ou consulter l'itinéraire, vous devez être connecté.</p>
+            <div className="mt-6 flex gap-3">
+              <button onClick={goToLogin} className="rounded-full border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50">Connexion</button>
+              <button onClick={goToRegister} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500">Inscription</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="border-t border-slate-200 bg-slate-950 text-slate-300">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 sm:flex-row sm:items-center sm:justify-between">

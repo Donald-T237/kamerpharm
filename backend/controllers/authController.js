@@ -16,8 +16,8 @@ exports.register = async (req, res) => {
     const userExists = await User.findOne({ email });
     if (userExists) return res.status(400).json({ message: 'Cet email est déjà utilisé' });
 
-    // Si c'est un patient, le statut est approuvé d'office. Si pharmacie, il reste 'pending'
-    const status = role === 'patient' ? 'approved' : 'pending';
+      // Si c'est un patient, le statut est approuvé d'office. Si pharmacie, il reste 'pending'
+      const status = role === 'patient' ? 'approved' : 'pending';
 
     // Préparation des données géographiques si c'est une pharmacie
     let location = undefined;
@@ -50,7 +50,7 @@ if (role === 'pharmacie') {
       type: 'Point',
       coordinates: coordinates || [0, 0]
     },
-    status: 'en_attente'
+    status: 'pending'
   });
 }
 

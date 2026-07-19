@@ -30,7 +30,7 @@ export default function MapboxMap({ pharmacies, userLocation, selectedPharmacy, 
       mapRef.current = map;
       map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-      const userMarker = new mapboxgl.Marker({ color: '#0f766e' })
+      const userMarker = new mapboxgl.Marker({ color: '#1d9157' })
         .setLngLat([userLocation.lng, userLocation.lat])
         .setPopup(new mapboxgl.Popup({ offset: 25 }).setText('votre position'))
         .addTo(map);

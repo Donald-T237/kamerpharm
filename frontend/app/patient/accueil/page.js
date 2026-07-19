@@ -18,7 +18,11 @@ function normalizePharmacyResult(item, productName) {
     name: productName || item.name || 'Produit inconnu',
     pharmacy: item.name || item.pharmacy || 'Pharmacie partenaire',
     address: item.address || item.location?.address || 'Adresse non renseignée',
-    distance: item.distance ? `${(item.distance / 1000).toFixed(1)} km` : item.distance || 'N/A',
+    distance: (() => {
+      if (typeof item.distance === 'number') return `${(item.distance / 1000).toFixed(1)} km`;
+      if (typeof item.distance === 'string' && item.distance.trim()) return item.distance;
+      return 'N/A';
+    })(),
     available: item.stock ? item.stock.length > 0 : true,
     stock: item.stock?.length ?? item.stock ?? 'N/A',
     hours: item.displayStatus || (item.isOpen ? 'Ouvert' : 'Fermé') || 'N/A',
@@ -34,6 +38,8 @@ function normalizePharmacyResult(item, productName) {
 export default function PatientAccueil() {
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState(MOCK_MEDICAMENTS);
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [userName, setUserName] = useState('Utilisateur');
   const [userLocation, setUserLocation] = useState(null);
   const [apiLoading, setApiLoading] = useState(false);
@@ -43,7 +49,8 @@ export default function PatientAccueil() {
   // États de navigation et d'interaction
   const [activeTab, setActiveTab] = useState('Tableau de bord');
   const [selectedMed, setSelectedMed] = useState(null); // Pharmacie/Médicament actuellement sélectionné sur la carte
-  const [reservationQty, setReservationQty] = useState(1);
+  const [reservationQty, setReservationQty] = useState('');
+  const [reservationError, setReservationError] = useState('');
   
   // Listes dynamiques pour les tests
   const [reservations, setReservations] = useState([
@@ -102,14 +109,41 @@ export default function PatientAccueil() {
     }
   };
 
+  const fetchSuggestions = async (query) => {
+    if (!query.trim()) {
+      setSuggestions([]);
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/medicament-suggestions?q=${encodeURIComponent(query)}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Impossible de récupérer les suggestions');
+      }
+
+      const suggestionNames = Array.isArray(data.results)
+        ? data.results.map((item) => item.name)
+        : [];
+
+      setSuggestions([...new Set(suggestionNames)].slice(0, 6));
+    } catch (error) {
+      setSuggestions([]);
+    }
+  };
+
   const handleSearch = async (e) => {
     const query = e.target.value;
     setSearchQuery(query);
+    setShowSuggestions(true);
 
     if (!query.trim()) {
       setResults(MOCK_MEDICAMENTS);
+      setSuggestions([]);
       return;
     }
+
+    fetchSuggestions(query);
 
     if (!userLocation) {
       setApiError('Activez la géolocalisation pour obtenir la distance et le statut des pharmacies.');
@@ -120,11 +154,28 @@ export default function PatientAccueil() {
     await fetchSearchResults(query);
   };
 
+  const handleSelectSuggestion = async (suggestion) => {
+    setSearchQuery(suggestion);
+    setShowSuggestions(false);
+    await fetchSearchResults(suggestion);
+  };
+
   useEffect(() => {
     if (userLocation && searchQuery.trim()) {
       fetchSearchResults(searchQuery);
     }
   }, [userLocation]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!event.target.closest('.autocomplete-container')) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const triggerItinerary = (med) => {
     setSelectedMed(med);
@@ -133,19 +184,32 @@ export default function PatientAccueil() {
 
   const triggerReservationSetup = (med) => {
     setSelectedMed(med);
-    setReservationQty(1);
+    setReservationQty('');
     setActiveTab('Réservations');
   };
 
   const confirmReservation = (e) => {
     e.preventDefault();
-    const total = selectedMed.price * reservationQty;
+    setReservationError('');
+
+    const qty = parseInt(reservationQty, 10);
+    if (isNaN(qty) || qty <= 0) {
+      setReservationError('La quantité doit être supérieure à 0.');
+      return;
+    }
+
+    if (qty > 5) {
+      setReservationError("Au-delà de 5 unités, vous devez vous présenter à la pharmacie en personne.");
+      return;
+    }
+
+    const total = selectedMed.price * qty;
     const newRes = {
       id: `RES-${Math.floor(1000 + Math.random() * 9000)}`,
       name: selectedMed.name,
       pharmacy: selectedMed.pharmacy,
       price: selectedMed.price,
-      qty: reservationQty,
+      qty: qty,
       total: total,
       status: 'En cours',
       date: 'Aujourd\'hui'
@@ -162,6 +226,7 @@ export default function PatientAccueil() {
       : '';
 
     alert(`Réservation enregistrée ! Médicament disponible en pharmacie, retrait sous 24h après validation.${prescriptionAlert}`);
+    setReservationQty('');
     setActiveTab('Réservations');
   };
 
@@ -223,13 +288,35 @@ export default function PatientAccueil() {
               <h1 className="text-3xl md:text-4xl font-black text-slate-900 mb-4">Trouvez votre médicament <span className="text-emerald-600">immédiatement.</span></h1>
               <p className="text-slate-500 text-xs md:text-sm max-w-lg mx-auto">Saisissez le nom du produit pour localiser la pharmacie partenaire la plus proche.</p>
               
-              <div className="relative max-w-xl mx-auto mt-8">
+              <div className="relative max-w-xl mx-auto mt-8 autocomplete-container">
                 <span className="absolute inset-y-0 left-4 flex items-center text-slate-400">
                   <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                   </svg>
                 </span>
-                <input type="text" placeholder="Rechercher un médicament..." className="w-full p-3.5 pl-11 bg-white border border-slate-200 rounded-xl outline-none transition-all text-xs font-medium focus:border-emerald-500" value={searchQuery} onChange={handleSearch} />
+                <input
+                  type="text"
+                  placeholder="Rechercher un médicament..."
+                  className="w-full p-3.5 pl-11 bg-white border border-slate-200 rounded-xl outline-none transition-all text-xs font-medium focus:border-emerald-500"
+                  value={searchQuery}
+                  onChange={handleSearch}
+                  onFocus={() => setShowSuggestions(true)}
+                  autoComplete="off"
+                />
+                {showSuggestions && suggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 mt-2 bg-white border border-slate-200 rounded-2xl shadow-lg z-20 overflow-hidden">
+                    {suggestions.map((suggestion, index) => (
+                      <button
+                        key={`${suggestion}-${index}`}
+                        type="button"
+                        onClick={() => handleSelectSuggestion(suggestion)}
+                        className="w-full text-left px-4 py-3 text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </section>
 
@@ -251,7 +338,13 @@ export default function PatientAccueil() {
                     </div>
                     
                     <div className="flex items-center gap-3 mt-3 bg-slate-50/50 p-2 rounded-xl border border-slate-100">
-                      <img src={med.image} alt={med.pharmacy} className="w-12 h-12 rounded-lg object-cover shadow-sm bg-slate-200" />
+                      <div className="w-12 h-12 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700 shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M5 12 l7 -8 7 8" />
+                          <path d="M7 12 v7 a2 2 0 0 0 2 2 h6 a2 2 0 0  2 -2 v-7" />
+                          <path d="M9 7 h6" />
+                        </svg>
+                      </div>
                       <div>
                         <p className="text-xs font-bold text-slate-700"> {med.pharmacy}</p>
                         <p className="text-[10px] text-slate-400 mt-0.5">À {med.distance} de vous</p>
@@ -300,7 +393,13 @@ export default function PatientAccueil() {
               <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div className="flex items-center gap-4">
-                    <img src={selectedMed.image} alt={selectedMed.pharmacy} className="w-16 h-16 rounded-3xl object-cover border border-slate-100 shadow-sm" />
+                    <div className="w-16 h-16 rounded-3xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700 shadow-sm">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5 12 l7 -8 7 8" />
+                        <path d="M7 12 v7 a2 2 0 0 0 2 2 h6 a2 2 0 0 0 2 -2 v-7" />
+                        <path d="M9 7 h6" />
+                      </svg>
+                    </div>
                     <div>
                       <h3 className="text-sm font-bold text-slate-900">{selectedMed.pharmacy}</h3>
                       <p className="text-[11px] text-slate-500 mt-1">{selectedMed.address}</p>
@@ -315,7 +414,7 @@ export default function PatientAccueil() {
                     </div>
                     <div className={`rounded-2xl p-3 ${selectedMed.isOpen ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
                       <p className="font-bold text-slate-900">Statut</p>
-                      <p>{selectedMed.hours}</p>
+                      <p className={selectedMed.isOpen ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>{selectedMed.hours}</p>
                     </div>
                   </div>
                 </div>
@@ -325,10 +424,7 @@ export default function PatientAccueil() {
                     <p className="text-[10px] uppercase tracking-wide text-slate-400">Prix estimé</p>
                     <p className="text-slate-900 font-black mt-2">{selectedMed.price} CFA</p>
                   </div>
-                  <div className="bg-slate-50 rounded-3xl p-4">
-                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Stocks disponibles</p>
-                    <p className="text-slate-900 font-black mt-2">{selectedMed.stock || '0'} boîte(s)</p>
-                  </div>
+                
                 </div>
 
                 <div className="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -354,7 +450,13 @@ export default function PatientAccueil() {
               {selectedMed ? (
                 <form onSubmit={confirmReservation} className="space-y-4">
                   <div className="bg-slate-50 p-4 rounded-xl flex gap-4 items-center">
-                    <img src={selectedMed.image} alt={selectedMed.pharmacy} className="w-12 h-12 rounded-lg object-cover" />
+                    <div className="w-12 h-12 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5 12 l7 -8 7 8" />
+                        <path d="M7 12 v7 a2 2 0 0 0 2 2 h6 a2 2 0 0 0 2 -2 v-7" />
+                        <path d="M9 7 h6" />
+                      </svg>
+                    </div>
                     <div className="flex-1">
                       <p className="text-[10px] text-slate-400 font-bold uppercase">Médicament ciblé</p>
                       <div className="flex flex-wrap items-center gap-2">
@@ -385,7 +487,21 @@ export default function PatientAccueil() {
                     </div>
                     <div className="bg-slate-50 p-3 rounded-xl">
                       <label className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Quantité</label>
-                      <input type="number" min="1" max={selectedMed.stock || 1} value={reservationQty} onChange={(e) => setReservationQty(parseInt(e.target.value) || 1)} className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs font-bold outline-none" />
+                      <input
+                        type="number"
+                        min="1"
+                        max={selectedMed.stock || 999}
+                        value={reservationQty}
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/[^0-9]/g, '');
+                          setReservationQty(cleaned);
+                          if (reservationError) setReservationError('');
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-lg p-1 text-xs font-bold outline-none"
+                      />
+                      {reservationError && (
+                        <p className="text-[11px] text-rose-600 mt-2">{reservationError}</p>
+                      )}
                     </div>
                   </div>
 

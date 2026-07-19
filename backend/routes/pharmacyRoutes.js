@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const User = require('../models/User');
 const Pharmacy = require('../models/Pharmacy');
+const Medication = require('../models/Medication');
 const { enrichPharmacyData } = require('../utils/pharmacyUtils');
 
 /**
@@ -28,30 +30,54 @@ router.get('/search', async (req, res) => {
 
     const latNum = parseFloat(lat);
     const lngNum = parseFloat(lng);
-    const maxDist = parseInt(maxDistance);
+    const maxDist = parseInt(maxDistance, 10);
 
-    // Agrégation MongoDB avec $geoNear
-    const resultats = await Pharmacy.aggregate([
+    // Recherche des pharmacies approuvées proches contenant le médicament
+    const resultats = await User.aggregate([
       {
         $geoNear: {
-          near: { 
-            type: "Point", 
-            coordinates: [lngNum, latNum] 
+          near: {
+            type: 'Point',
+            coordinates: [lngNum, latNum]
           },
-          distanceField: "distance",
+          distanceField: 'distance',
           spherical: true,
-          maxDistance: maxDist, // Limite à 50km par défaut
-          distanceMultiplier: 1 // Garde la distance en mètres
+          maxDistance: maxDist,
+          distanceMultiplier: 1
         }
       },
       {
         $match: {
-          stock: { $regex: produit, $options: 'i' },
-          status: 'approuve' // Affiche seulement les pharmacies approuvées
+          role: 'pharmacie',
+          status: 'approved',
+          'location.coordinates': { $exists: true }
         }
       },
       {
-        $limit: 30 // Limite à 30 résultats max
+        $lookup: {
+          from: 'medications',
+          let: { pharmacyId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$pharmacyId', '$$pharmacyId'] },
+                    { $gt: ['$stock', 0] },
+                    { $regexMatch: { input: '$name', regex: produit, options: 'i' } }
+                  ]
+                }
+              }
+            },
+            { $project: { name: 1, price: 1, stock: 1, requiresPrescription: 1 } }
+          ],
+          as: 'matchedMedications'
+        }
+      },
+      {
+        $match: {
+          matchedMedications: { $ne: [] }
+        }
       },
       {
         $project: {
@@ -60,19 +86,28 @@ router.get('/search', async (req, res) => {
           phone: 1,
           email: 1,
           address: 1,
-          "location.coordinates": 1,
-          hours: 1,
-          stock: 1,
-          acceptsMomo: 1,
-          acceptsOm: 1,
+          location: 1,
+          schedule: 1,
           isOnDuty: 1,
-          distance: 1
+          distance: 1,
+          matchedMedications: 1
         }
+      },
+      {
+        $limit: 30
       }
     ]);
 
-    // Enrichissement des données (ajout du statut et distance formatée)
-    const enrichedResults = resultats.map(pharmacy => enrichPharmacyData(pharmacy));
+    const enrichedResults = resultats.map((pharmacy) => {
+      const meds = pharmacy.matchedMedications || [];
+      return enrichPharmacyData({
+        ...pharmacy,
+        hours: pharmacy.schedule || {},
+        stock: meds.map((med) => med.name),
+        price: meds.length ? meds[0].price : 0,
+        requiresPrescription: meds.length ? meds[0].requiresPrescription : false
+      });
+    });
 
     res.json({
       success: true,
@@ -81,10 +116,10 @@ router.get('/search', async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Erreur API Recherche:", error);
-    res.status(500).json({ 
-      error: "Une erreur interne est survenue.",
-      details: error.message 
+    console.error('Erreur API Recherche:', error);
+    res.status(500).json({
+      error: 'Une erreur interne est survenue.',
+      details: error.message
     });
   }
 });
@@ -115,7 +150,7 @@ router.get('/:id', async (req, res) => {
  */
 router.get('/list/all', async (req, res) => {
   try {
-    const pharmacies = await Pharmacy.find({ status: 'approuve' });
+    const pharmacies = await Pharmacy.find({ status: 'approved' });
     const enriched = pharmacies.map(p => enrichPharmacyData(p.toObject()));
     
     res.json({

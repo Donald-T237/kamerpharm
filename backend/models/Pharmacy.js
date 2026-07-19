@@ -36,8 +36,8 @@ const PharmacySchema = new mongoose.Schema({
   // Statut géré par l'ADMIN (Flux d'approbation et suspension)
   status: { 
     type: String, 
-    enum: ['en_attente', 'approuve', 'suspendu', 'refuse'], 
-    default: 'en_attente' 
+    enum: ['pending', 'approved', 'suspended', 'rejected'], 
+    default: 'pending' 
   },
   
   createdAt: { type: Date, default: Date.now }
