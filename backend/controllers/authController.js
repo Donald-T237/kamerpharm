@@ -2,6 +2,12 @@ const User = require('../models/User');
 const Pharmacy = require('../models/Pharmacy');
 const jwt = require('jsonwebtoken');
 
+const isValidCameroonPhone = (phone) => {
+  if (!phone || typeof phone !== 'string') return false;
+  const digits = phone.replace(/\D/g, '');
+  return /^(?:237)?[2367]\d{8}$/.test(digits);
+};
+
 // Fonction d'aide pour générer le JWT
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
@@ -16,8 +22,12 @@ exports.register = async (req, res) => {
     const userExists = await User.findOne({ email });
     if (userExists) return res.status(400).json({ message: 'Cet email est déjà utilisé' });
 
-      // Si c'est un patient, le statut est approuvé d'office. Si pharmacie, il reste 'pending'
-      const status = role === 'patient' ? 'approved' : 'pending';
+    if (!isValidCameroonPhone(phone)) {
+      return res.status(400).json({ message: 'Le numéro de téléphone doit être un numéro camerounais valide (9 chiffres ou +237...).' });
+    }
+
+    // Si c'est un patient, le statut est approuvé d'office. Si pharmacie, il reste 'pending'
+    const status = role === 'patient' ? 'approved' : 'pending';
 
     // Préparation des données géographiques si c'est une pharmacie
     let location = undefined;

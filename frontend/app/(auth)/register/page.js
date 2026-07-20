@@ -20,6 +20,11 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  const isValidCameroonPhone = (phone) => {
+    const digits = phone.replace(/\D/g, '');
+    return /^(?:237)?[2367]\d{8}$/.test(digits);
+  };
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
@@ -30,6 +35,11 @@ export default function RegisterPage() {
 
     if (formData.password !== formData.confirmPassword) {
       setError('Les mots de passe ne correspondent pas.');
+      return;
+    }
+
+    if (!isValidCameroonPhone(formData.phone)) {
+      setError('Le numéro de téléphone doit être un numéro camerounais valide (9 chiffres ou +237...).');
       return;
     }
 
@@ -56,10 +66,23 @@ export default function RegisterPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Erreur lors de l'inscription");
 
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('userRole', data.role);
+      localStorage.setItem('userName', data.name);
+
       setSuccess(true);
-      setTimeout(() => {
-        router.push('/login');
-      }, 2000);
+
+      if (data.role === 'patient') {
+        router.push('/patient/accueil');
+      } else if (data.role === 'pharmacie') {
+        if (data.status === 'pending') {
+          router.push('/pharmacie/attente');
+        } else {
+          router.push('/pharmacie/dashboard');
+        }
+      } else if (data.role === 'admin') {
+        router.push('/admin/dashboard');
+      }
 
     } catch (err) {
       setError(err.message);
@@ -124,7 +147,8 @@ export default function RegisterPage() {
             <input
               type="tel"
               name="phone"
-              placeholder="Numéro de téléphone"
+              placeholder="Numéro camerounais (ex: 677123456 ou +237677123456)"
+              pattern="^(?:\+237|237)?[2367][0-9]{8}$"
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition-colors"
               value={formData.phone}
               onChange={handleChange}
